@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>WBK Weber Robot: Christmas Telecom Quest</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #07111f;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #wrap {
+    width: 100vw;
+    height: 100vh;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(25,124,255,.30), transparent 26%),
+      radial-gradient(circle at 86% 22%, rgba(230,40,80,.20), transparent 24%),
+      linear-gradient(#0b1d35, #07111f);
+  }
+  canvas {
+    background: #10243d;
+    max-width: 100vw;
+    max-height: 100vh;
+    image-rendering: auto;
+    box-shadow: 0 0 30px rgba(0,0,0,.45);
+    border-radius: 12px;
+  }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .panel {
+    width: min(780px, 90vw);
+    background: rgba(3, 10, 20, .90);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 22px;
+    padding: 24px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.55);
+    text-align: center;
+    pointer-events: auto;
+  }
+  .panel h1 {
+    margin: 0 0 8px;
+    font-size: clamp(27px, 5vw, 52px);
+    line-height: 1;
+  }
+  .panel p {
+    color: #d8e8ff;
+    line-height: 1.45;
+    margin: 10px auto;
+    max-width: 650px;
+  }
+  .btn {
+    display: inline-block;
+    margin: 14px 7px 0;
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: #2f9cff;
+    color: white;
+    font-weight: 800;
+    border: 0;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(47,156,255,.35);
+  }
+  .btn.secondary { background:#243952; box-shadow:none; }
+  #mobileControls {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 18px;
+    pointer-events: none;
+  }
+  .pad, .jump {
+    pointer-events: auto;
+    display: flex;
+    gap: 10px;
+  }
+  .key {
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.24);
+    color: white;
+    font-weight: 900;
+    user-select: none;
+    backdrop-filter: blur(8px);
+  }
+  @media (min-width: 900px) {
+    #mobileControls { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="960" height="540"></canvas></div>
+<div id="overlay">
+  <div class="panel" id="menu">
+    <h1>🤖 WBK Weber Robot:<br>Christmas Telecom Quest</h1>
+    <p>A quick 2D platformer prototype inspired by classic side-scrollers. Run, jump, collect spectrum snowflakes, dodge interference bots, and restore holiday broadband across 10 telecom-themed Christmas levels.</p>
+    <p><b>Controls:</b> Arrow keys / A-D to move, Space / W / Up to jump. On mobile, use the buttons.</p>
+    <button class="btn" onclick="startGame()">Start Level 1</button>
+    <button class="btn secondary" onclick="showLevelSelect()">Level Select</button>
+  </div>
+</div>
+<div id="mobileControls">
+  <div class="pad">
+    <div class="key" id="left">◀</div>
+    <div class="key" id="right">▶</div>
+  </div>
+  <div class="jump"><div class="key" id="jump">▲</div></div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+const menu = document.getElementById("menu");
+
+const W = canvas.width, H = canvas.height;
+const gravity = 0.55;
+let keys = {};
+let state = "menu";
+let levelIndex = 0;
+let score = 0;
+let lives = 3;
+let snow = [];
+let particles = [];
+let cameraX = 0;
+let messageTimer = 0;
+let message = "";
+
+const themes = [
+  ["FCC Filing Frost", "#0b2a44", "#173f61"],
+  ["North Pole Network", "#102b3b", "#1f546b"],
+  ["Spectrum Snowfield", "#112b56", "#1a4d7c"],
+  ["Fiber Chimney Run", "#211c3b", "#44325f"],
+  ["5G Gingerbread Grid", "#40211b", "#6b392c"],
+  ["Satellite Sleighway", "#071b36", "#123f72"],
+  ["Rural Broadband Ridge", "#16341f", "#2f6842"],
+  ["Data Center Blizzard", "#182334", "#37465f"],
+  ["Interference Ice Caves", "#13233f", "#275b87"],
+  ["Christmas Compliance Castle", "#27162d", "#69315a"]
+];
+
+const levelNames = [
+  "FCC Filing Frost",
+  "North Pole Network",
+  "Spectrum Snowfield",
+  "Fiber Chimney Run",
+  "5G Gingerbread Grid",
+  "Satellite Sleighway",
+  "Rural Broadband Ridge",
+  "Data Center Blizzard",
+  "Interference Ice Caves",
+  "Christmas Compliance Castle"
+];
+
+function makeLevel(n) {
+  const len = 2250 + n * 235;
+  const platforms = [{x:0,y:485,w:len,h:80,type:"ground"}];
+  const coins = [], enemies = [], gifts = [], towers = [];
+  let x = 260;
+  for (let i=0;i<8+n;i++) {
+    let y = 400 - ((i+n)%4)*55;
+    let w = 150 + ((i*37)%90);
+    platforms.push({x:x,y:y,w:w,h:24,type:i%3===0?"fiber":"platform"});
+    coins.push({x:x+35,y:y-35,r:10,got:false});
+    if (i%2===0) coins.push({x:x+w-42,y:y-35,r:10,got:false});
+    if (i%3===1) enemies.push({x:x+w/2,y:y-25,w:34,h:30,vx:1.1+n*.08,min:x+10,max:x+w-44});
+    if (i%4===0) gifts.push({x:x+w/2-12,y:y-64,w:26,h:24,got:false});
+    if (i%5===0) towers.push({x:x+w-22,y:y-82});
+    x += 230 + ((i*23+n*31)%105);
+  }
+  platforms.push({x:len-180,y:410,w:130,h:24,type:"platform"});
+  coins.push({x:len-135,y:370,r:10,got:false});
+  return {len, platforms, coins, enemies, gifts, towers, goal: {x:len-95,y:350,w:48,h:95}, spawn: {x:50,y:390}};
+}
+
+const levels = Array.from({length:10}, (_,i)=>makeLevel(i));
+
+let player = {x:50,y:390,w:38,h:52,vx:0,vy:0,onGround:false,face:1,inv:0};
+
+function resetPlayer() {
+  const sp = levels[levelIndex].spawn;
+  player.x = sp.x; player.y = sp.y; player.vx=0; player.vy=0; player.onGround=false; player.inv=50;
+  cameraX = 0;
+}
+
+function startGame() {
+  state = "play"; overlay.style.display = "none";
+  levelIndex = 0; score = 0; lives = 3;
+  levels.forEach(lvl=>{ lvl.coins.forEach(c=>c.got=false); lvl.gifts.forEach(g=>g.got=false); });
+  resetPlayer();
+  toast("Level 1: " + levelNames[0]);
+}
+
+function showLevelSelect() {
+  menu.innerHTML = `<h1>Choose a Level</h1><p>Prototype shortcut. Pick any Christmas telecom zone.</p>` +
+    levelNames.map((name,i)=>`<button class="btn" onclick="jumpToLevel(${i})">${i+1}. ${name}</button>`).join("") +
+    `<br><button class="btn secondary" onclick="location.reload()">Back</button>`;
+}
+
+function jumpToLevel(i) {
+  state = "play"; overlay.style.display = "none";
+  levelIndex = i; score = 0; lives = 3;
+  levels.forEach(l=>{ l.coins.forEach(c=>c.got=false); l.gifts.forEach(g=>g.got=false); });
+  resetPlayer(); toast("Level " + (i+1) + ": " + levelNames[i]);
+}
+
+function toast(t) { message = t; messageTimer = 140; }
+function rects(a,b) { return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+
+function update() {
+  if (state !== "play") return;
+  const lvl = levels[levelIndex];
+  const move = (keys["ArrowRight"]||keys["d"]?1:0) - (keys["ArrowLeft"]||keys["a"]?1:0);
+  player.vx += move * 0.62;
+  player.vx *= 0.84;
+  if (Math.abs(player.vx) > 5.3) player.vx = 5.3 * Math.sign(player.vx);
+  if (move) player.face = move;
+
+  if ((keys[" "]||keys["ArrowUp"]||keys["w"]) && player.onGround) {
+    player.vy = -12.3; player.onGround = false;
+    burst(player.x+player.w/2, player.y+player.h, 10, "#eaf7ff");
+  }
+
+  player.vy += gravity;
+  player.x += player.vx;
+  player.y += player.vy;
+  player.onGround = false;
+
+  for (const p of lvl.platforms) {
+    if (rects(player,p)) {
+      if (player.vy > 0 && player.y + player.h - player.vy <= p.y+5) {
+        player.y = p.y - player.h; player.vy = 0; player.onGround = true;
+      } else if (player.vy < 0 && player.y - player.vy >= p.y+p.h-5) {
+        player.y = p.y + p.h; player.vy = 0;
+      } else if (player.vx > 0) { player.x = p.x - player.w; player.vx = 0; }
+      else if (player.vx < 0) { player.x = p.x + p.w; player.vx = 0; }
+    }
+  }
+
+  player.x = Math.max(0, Math.min(lvl.len-player.w, player.x));
+  if (player.y > H + 120) hurt(true);
+
+  for (const c of lvl.coins) {
+    if (!c.got) {
+      const dx = player.x+player.w/2-c.x, dy=player.y+player.h/2-c.y;
+      if (Math.hypot(dx,dy)<35) { c.got = true; score += 100; burst(c.x,c.y,12,"#9ee8ff"); }
+    }
+  }
+
+  for (const g of lvl.gifts) {
+    if (!g.got && rects(player,g)) {
+      g.got = true; score += 300;
+      toast(["Filing accepted!","Fiber node restored!","Holiday spectrum secured!","Santa's router rebooted!"][Math.floor(Math.random()*4)]);
+      burst(g.x+13,g.y+12,20,"#ff3b6e");
+    }
+  }
+
+  for (const e of lvl.enemies) {
+    e.x += e.vx;
+    if (e.x < e.min || e.x > e.max) e.vx *= -1;
+    if (player.inv<=0 && rects(player,e)) {
+      if (player.vy > 2 && player.y+player.h-player.vy < e.y+8) {
+        e.dead = true; score += 150; player.vy = -8;
+        burst(e.x+16,e.y+14,16,"#ffdf6e");
+      } else hurt(false);
+    }
+  }
+  lvl.enemies = lvl.enemies.filter(e=>!e.dead);
+
+  if (rects(player, lvl.goal)) {
+    score += 500;
+    if (levelIndex < 9) { levelIndex++; resetPlayer(); toast("Level " + (levelIndex+1) + ": " + levelNames[levelIndex]); }
+    else win();
+  }
+
+  player.inv = Math.max(0, player.inv-1);
+  cameraX = Math.max(0, Math.min(lvl.len-W, player.x - W*0.38));
+  updateParticles();
+  if (messageTimer > 0) messageTimer--;
+}
+
+function hurt(fall) {
+  lives--; burst(player.x+player.w/2, player.y+player.h/2, 24, "#ff4f5e");
+  if (lives <= 0) {
+    state = "gameover"; overlay.style.display = "grid";
+    menu.innerHTML = `<h1>Signal Lost</h1><p>The Weber Robot got tangled in holiday interference.</p><button class="btn" onclick="startGame()">Try Again</button>`;
+  } else { resetPlayer(); toast(fall ? "Watch the drop." : "Ouch. Interference bot."); }
+}
+
+function win() {
+  state = "win"; overlay.style.display = "grid";
+  menu.innerHTML = `<h1>🎄 Network Lit!</h1><p>You cleared all 10 Christmas telecom levels with ${score.toLocaleString()} points.</p><p>The WBK Weber Robot has saved the holiday broadband season.</p><button class="btn" onclick="startGame()">Play Again</button><button class="btn secondary" onclick="showLevelSelect()">Level Select</button>`;
+}
+
+function burst(x,y,n,color) {
+  for (let i=0;i<n;i++) particles.push({x,y,vx:(Math.random()*2-1)*4,vy:(Math.random()*2-1)*4-1,life:35+Math.random()*20,color});
+}
+function updateParticles() { particles.forEach(p=>{p.x+=p.vx; p.y+=p.vy; p.vy+=.12; p.life--;}); particles = particles.filter(p=>p.life>0); }
+
+function drawSnow() {
+  if (snow.length < 80) snow.push({x:Math.random()*W, y:-10, s:1+Math.random()*3, v:.4+Math.random()*1.2});
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  snow.forEach(s=>{ s.y+=s.v; s.x += Math.sin(s.y*.02)*.3; ctx.beginPath(); ctx.arc(s.x,s.y,s.s,0,Math.PI*2); ctx.fill(); });
+  snow = snow.filter(s=>s.y<H+10);
+}
+
+function draw() {
+  const lvl = levels[levelIndex], theme = themes[levelIndex];
+  const grd = ctx.createLinearGradient(0,0,0,H);
+  grd.addColorStop(0, theme[0]); grd.addColorStop(1, theme[1]);
+  ctx.fillStyle = grd; ctx.fillRect(0,0,W,H);
+
+  ctx.save(); ctx.translate(-cameraX*.25,0);
+  for(let i=0;i<18;i++){
+    const bx=i*190;
+    ctx.fillStyle = i%2 ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.16)";
+    ctx.fillRect(bx, 330-((i*17)%90), 80+((i*23)%60), 180);
+    ctx.fillStyle="rgba(135,220,255,.25)";
+    for(let j=0;j<5;j++) ctx.fillRect(bx+12+j*16, 350-((i*17)%90), 8, 8);
+  }
+  ctx.restore();
+
+  drawSnow();
+  ctx.save(); ctx.translate(-cameraX,0);
+  for(const t of lvl.towers) drawTower(t.x,t.y);
+  for(const p of lvl.platforms) drawPlatform(p);
+  for(const c of lvl.coins) if(!c.got) drawCoin(c.x,c.y);
+  for(const g of lvl.gifts) if(!g.got) drawGift(g.x,g.y);
+  for(const e of lvl.enemies) drawEnemy(e.x,e.y,e.w,e.h);
+  drawGoal(lvl.goal.x,lvl.goal.y,lvl.goal.w,lvl.goal.h);
+  drawWeberRobot(player.x,player.y,player.w,player.h);
+  for(const p of particles) {
+    ctx.globalAlpha = Math.max(0,p.life/45); ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+
+  ctx.fillStyle="rgba(0,0,0,.38)"; roundRect(16,14,440,46,14,true);
+  ctx.fillStyle="#fff"; ctx.font="800 18px system-ui, -apple-system, Segoe UI";
+  ctx.fillText(`Level ${levelIndex+1}/10: ${levelNames[levelIndex]}`, 30, 44);
+  ctx.textAlign="right"; ctx.fillText(`Score ${score.toLocaleString()}   Lives ${"🤖".repeat(lives)}`, W-24, 44); ctx.textAlign="left";
+
+  if (messageTimer>0) {
+    ctx.save(); ctx.globalAlpha=Math.min(1,messageTimer/20);
+    ctx.fillStyle="rgba(0,0,0,.55)"; roundRect(W/2-230,72,460,42,18,true);
+    ctx.fillStyle="#fff"; ctx.font="800 18px system-ui"; ctx.textAlign="center"; ctx.fillText(message,W/2,100);
+    ctx.restore(); ctx.textAlign="left";
+  }
+}
+
+function drawPlatform(p) {
+  if (p.type==="ground") {
+    ctx.fillStyle="#ffffff"; ctx.globalAlpha=.14; ctx.fillRect(p.x,p.y-10,p.w,10); ctx.globalAlpha=1;
+    ctx.fillStyle="#26384d"; ctx.fillRect(p.x,p.y,p.w,p.h);
+    ctx.fillStyle="#eaf7ff"; ctx.fillRect(p.x,p.y,p.w,8);
+  } else {
+    ctx.fillStyle=p.type==="fiber" ? "#0ed0a8" : "#e7f5ff";
+    roundRect(p.x,p.y,p.w,p.h,10,true);
+    ctx.fillStyle="rgba(0,0,0,.22)"; ctx.fillRect(p.x+10,p.y+9,p.w-20,4);
+  }
+}
+
+function drawCoin(x,y) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(Date.now()/400);
+  ctx.strokeStyle="#8ee7ff"; ctx.lineWidth=4;
+  ctx.beginPath();
+  for(let i=0;i<6;i++){ const a=i*Math.PI/3; ctx.moveTo(0,0); ctx.lineTo(Math.cos(a)*13,Math.sin(a)*13); }
+  ctx.stroke(); ctx.fillStyle="#ffffff"; ctx.beginPath(); ctx.arc(0,0,4,0,Math.PI*2); ctx.fill(); ctx.restore();
+}
+
+function drawGift(x,y) {
+  ctx.fillStyle="#d71946"; roundRect(x,y,26,24,4,true);
+  ctx.fillStyle="#ffe05e"; ctx.fillRect(x+11,y,4,24); ctx.fillRect(x,y+9,26,4);
+  ctx.fillStyle="#fff"; ctx.font="12px system-ui"; ctx.fillText("5G",x+4,y+17);
+}
+
+function drawEnemy(x,y,w,h) {
+  ctx.fillStyle="#2a1522"; roundRect(x,y,w,h,9,true);
+  ctx.fillStyle="#ff3b6e"; ctx.beginPath(); ctx.arc(x+10,y+10,4,0,Math.PI*2); ctx.arc(x+w-10,y+10,4,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle="#ff3b6e"; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x+5,y-6); ctx.lineTo(x+12,y+2); ctx.moveTo(x+w-5,y-6); ctx.lineTo(x+w-12,y+2); ctx.stroke();
+  ctx.fillStyle="#101018"; ctx.fillRect(x+6,y+h-5,w-12,5);
+}
+
+function drawTower(x,y) {
+  ctx.strokeStyle="rgba(160,230,255,.75)"; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.moveTo(x,y+80); ctx.lineTo(x+24,y); ctx.lineTo(x+48,y+80); ctx.moveTo(x+12,y+40); ctx.lineTo(x+36,y+40); ctx.moveTo(x+7,y+62); ctx.lineTo(x+41,y+62); ctx.stroke();
+  ctx.strokeStyle="rgba(160,230,255,.32)";
+  for(let r=16;r<44;r+=13){ ctx.beginPath(); ctx.arc(x+24,y+8,r,Math.PI*1.18,Math.PI*1.82); ctx.stroke(); }
+}
+
+function drawGoal(x,y,w,h) {
+  ctx.fillStyle="#ffffff"; ctx.fillRect(x+w/2-3,y,6,h);
+  ctx.fillStyle="#23d18b"; roundRect(x+w/2+3,y+8,54,32,6,true);
+  ctx.fillStyle="#fff"; ctx.font="bold 14px system-ui"; ctx.fillText("WBK",x+w/2+10,y+29);
+  ctx.fillStyle="#e7f5ff"; ctx.beginPath(); ctx.arc(x+w/2,y+h,22,0,Math.PI*2); ctx.fill();
+}
+
+function drawWeberRobot(x,y,w,h) {
+  ctx.save();
+  ctx.translate(x + w/2, y + h/2);
+  ctx.scale(player.face, 1);
+
+  if (player.inv>0 && Math.floor(player.inv/5)%2===0) ctx.globalAlpha=.55;
+
+  // shadow
+  ctx.globalAlpha = .22;
+  ctx.fillStyle="#000";
+  ctx.beginPath(); ctx.ellipse(0, h/2+6, 25, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // white body, vertical oval capsule
+  const bodyW = 34, bodyH = 44;
+  ctx.fillStyle="#f7fbff";
+  ctx.strokeStyle="#dfe8f2";
+  ctx.lineWidth=2;
+  roundRect(-bodyW/2, -bodyH/2+3, bodyW, bodyH, 17, true, true);
+
+  // blue lower panel
+  ctx.fillStyle="#1474d4";
+  roundRect(-11, 6, 22, 15, 6, true);
+
+  // central white dot on blue body
+  ctx.fillStyle="#f7fbff";
+  ctx.beginPath(); ctx.arc(0,13,3.1,0,Math.PI*2); ctx.fill();
+
+  // antenna stem
+  ctx.strokeStyle="#dfe8f2";
+  ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(0,-22); ctx.lineTo(0,-32); ctx.stroke();
+
+  // antenna blue globe
+  ctx.fillStyle="#1886ff";
+  ctx.strokeStyle="#b9dcff";
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(0,-36,7,0,Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // ears
+  ctx.fillStyle="#f7fbff";
+  ctx.strokeStyle="#dfe8f2";
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(-18,-6,8,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(18,-6,8,0,Math.PI*2); ctx.fill(); ctx.stroke();
+
+  // face black visor
+  ctx.fillStyle="#191d22";
+  roundRect(-13,-12,26,16,8,true);
+
+  // blue eyes
+  ctx.fillStyle="#20a4ff";
+  ctx.beginPath(); ctx.arc(-5,-4,3,0,Math.PI*2); ctx.arc(5,-4,3,0,Math.PI*2); ctx.fill();
+
+  // Santa hat
+  ctx.fillStyle="#d71946";
+  ctx.beginPath(); ctx.moveTo(-15,-23); ctx.quadraticCurveTo(-3,-44,14,-25); ctx.quadraticCurveTo(6,-27,-15,-23); ctx.fill();
+  ctx.fillStyle="#fff";
+  ctx.beginPath(); ctx.ellipse(-5,-24,16,5,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(15,-25,5,0,Math.PI*2); ctx.fill();
+
+  // arms
+  ctx.strokeStyle="#f7fbff";
+  ctx.lineWidth=6;
+  ctx.lineCap="round";
+  const swing = Math.sin(Date.now()/110) * Math.min(1, Math.abs(player.vx)/5) * 5;
+  ctx.beginPath(); ctx.moveTo(-16,4); ctx.lineTo(-25,12+swing); ctx.moveTo(16,4); ctx.lineTo(25,12-swing); ctx.stroke();
+
+  // little boots
+  ctx.strokeStyle="#1474d4"; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(-8,24); ctx.lineTo(-11,31); ctx.moveTo(8,24); ctx.lineTo(11,31); ctx.stroke();
+
+  ctx.restore();
+}
+
+function roundRect(x,y,w,h,r,fill,stroke=false) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  if(fill) ctx.fill(); if(stroke) ctx.stroke();
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+
+window.addEventListener("keydown", e=>{ keys[e.key]=true; if([" ","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) e.preventDefault(); });
+window.addEventListener("keyup", e=>{ keys[e.key]=false; });
+
+function bindButton(id, key) {
+  const el=document.getElementById(id);
+  const down=e=>{ e.preventDefault(); keys[key]=true; };
+  const up=e=>{ e.preventDefault(); keys[key]=false; };
+  el.addEventListener("touchstart",down); el.addEventListener("touchend",up); el.addEventListener("touchcancel",up);
+  el.addEventListener("mousedown",down); window.addEventListener("mouseup",up);
+}
+bindButton("left","ArrowLeft"); bindButton("right","ArrowRight"); bindButton("jump"," ");
+
+loop();
+</script>
+</body>
+</html>
